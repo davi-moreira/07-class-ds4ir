@@ -1,0 +1,37 @@
+---
+title: "07-class-ds4ir-assignment"
+author: "seu nome aqui"
+date: "`r format(Sys.time(), '%d-%m-%Y')`"
+output: 
+  html_document:
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(modelr)
+library(jtools)
+library(nycflights13)
+library(gapminder)
+library(lubridate)
+```
+
+# Assignment {-}
+
+1. Estime um modelo que inclua o peso, a altura, a largura e a profundidade dos 
+diamantes como fatores preditores do seu preço. O peso mantém a influência que 
+observamos nos slides?
+
+2. Identifique os 3 dias com maior resíduo positivo para o número de vôos em Nova 
+York. Você consegue encontrar o motivo?
+
+3. Demonstre a evolução da expectativa de vida no Brasil em 3 gráficos: um com os 
+dados completos, um com a decomposição da tendência e um com a decomposição do resíduo.
+
+4. Identifique o país asiático cuja evolução da expectativa de vida mais destoa 
+na região (isto é, cujo modelo tem o piot ajuste)
+
+5. Produza um documento .html com o resultado de sua análise
+
+**Observação**: Não se esqueça de colocar seu nome.

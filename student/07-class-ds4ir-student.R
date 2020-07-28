@@ -1,0 +1,592 @@
+# ---
+#   title: "DS4IR"
+# subtitle: "Análise multivariada e modelos preditivos"
+# author: 
+#   - Professor Davi Moreira
+# - Professor Rafael Magalhães
+# date: "`r format(Sys.time(), '%d-%m-%Y')`"
+# output: 
+#   revealjs::revealjs_presentation:
+#   theme: simple
+# highlight: haddock
+# transition: slide
+# center: true
+# css: stylesheet.css
+# reveal_options:
+#   controls: false  # Desativar botões de navegação no slide
+# mouseWheel: true # Passar slides com o mouse
+# ---
+#   
+#   ## Programa
+#   
+#   - Tendências e resíduos
+# - Modelos preditivos
+# - Múltiplos modelos
+# - Pontos ideais
+# 
+# ## Motivação
+# Qual foi o padrão de desenvolvimento dos países no século XX? Como conseguimos identificar a tendência principal dessa evolução. Talvez mais importante, como identificar os casos que não seguem a tendência geral?
+#   
+#   A decomposição de resíduos e tendências pode nos ajudar a responder essas perguntas, e as ferramentas de programação funcional nos permitirão fazê-lo em bases de dados mais complexas do que as que vimos até agora.
+# 
+# 
+# ## Análise de modelos
+# Na aula passada, vimos o funcionamento de modelos lineares. Hoje vamos explorá-los um pouco mais, mostrando como podemos separá-los analiticamente em **tendências** e **resíduos**
+#   
+#   A ideia é evitar usar modelos como caixas pretas, que produzem resultados que não entendemos. Por meio de um modelo quantitativo que inclui informações disponíveis nos dados e na sua experiência, podemos abstrair conclusões que podem ser aplicadas em novos contextos.
+# 
+# ## Primeiros passos
+# Vamos introduzir o tema com um modelo simples de um banco de dados já conhecido, a fim de responder à seguinte pergunta: por que diamantes de pior qualidade são os mais caros?
+#   
+#   Prosseguiremos com um banco de dados didáticos para identificar padrões de alocação de voos internacionais. Com as ferramentas que aprendermos nesses dois exemplos, seremos capazes de montar modelos mais complexos para identificar padrões de desenvolvimento internacional.
+# 
+# ## Carregando as bases
+# ```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+library(tidyverse)
+library(modelr)
+library(gapminder)
+library(unvotes)
+library(nycflights13) # banco de dados
+library(lubridate) # processamento de datas
+library(hexbin) # gráficos hexagonais
+library(here)
+# ``` 
+# 
+# ## Qualidade vs preço
+# ```{r fig.align='center', fig.width=7, fig.height=5}
+diamonds %>% ggplot(aes(cut, price)) + geom_boxplot()
+# ```
+# 
+# ## Qualidade vs preço
+# ```{r fig.align='center', fig.width=7, fig.height=5}
+diamonds %>% ggplot(aes(color, price)) + geom_boxplot()
+# ```
+# 
+# ## Qualidade vs preço
+# ```{r fig.align='center', fig.width=7, fig.height=5}
+diamonds %>% ggplot(aes(clarity, price)) + geom_boxplot()
+# ```
+# 
+# ## Determinantes do preço
+# Diamantes om pior corte, clareza e pureza parecem ter preços similares aos dos seus pares por causa de uma variável omitida: o peso.
+# 
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+ggplot(diamonds, aes(carat, price)) + 
+  geom_hex(bins = 50)
+# ```
+# 
+# ## Determinantes do preço
+# A relação fica ainda mais clara quando fazemos uma transformação logaritmica nas variáveis
+# 
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+diamonds2 <- diamonds %>% 
+  filter(carat <= 2.5) %>% 
+  mutate(lprice = log2(price), lcarat = log2(carat))
+
+ggplot(diamonds2, aes(lcarat, lprice)) + 
+  geom_hex(bins = 50)
+# ```
+# 
+# ## Eliminação do sinal
+# Agora que observamos uma relação linear entre peso e preço, podemos começar a trabalhar na nossa decomposição entre elementos de tendência e de resíduo. 
+# 
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+mod_diamond <- lm(lprice ~ lcarat, data = diamonds2)
+
+grid <- diamonds2 %>% 
+  data_grid(carat = seq_range(carat, 20)) %>% 
+  mutate(lcarat = log2(carat)) %>% 
+  add_predictions(mod_diamond, "lprice") %>% 
+  mutate(price = 2 ^ lprice)
+
+ggplot(diamonds2, aes(carat, price)) + 
+  geom_hex(bins = 50) + 
+  geom_line(data = grid, colour = "red", size = 1)
+# ```
+# 
+# 
+# ## Análise de resíduos
+# Uma vez que tiramos o componente linear dessa relação, os resíduos devem mostrar pouca associação entre peso e preço
+# 
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+diamonds2 <- diamonds2 %>% 
+  add_residuals(mod_diamond, "lresid")
+
+ggplot(diamonds2, aes(lcarat, lresid)) + 
+  geom_hex(bins = 50)
+# ```
+# 
+# ## Retorno: qualidade vs preço
+# ```{r fig.align='center', fig.width=7, fig.height=5}
+diamonds2 %>% ggplot(aes(cut, lresid)) + geom_boxplot()
+# ```
+# 
+# ## Retorno: qualidade vs preço
+# ```{r fig.align='center', fig.width=7, fig.height=5}
+diamonds2 %>% ggplot(aes(color, lresid)) + geom_boxplot()
+# ```
+# 
+# ## Retorno: qualidade vs preço
+# ```{r fig.align='center', fig.width=7, fig.height=5}
+diamonds2 %>% ggplot(aes(clarity, lresid)) + geom_boxplot()
+# ```
+# 
+# ## Adicionando mais variáveis
+# O que vimos no exemplo anterior foi o processo de "controle" da variável `peso`, a fim de observar uma associação mais limpa entre a qualidade dos diamantes e seu preço. Como vimos ontem, podemos controlar por todas as variáveis ao mesmo tempo por meio da regressão.
+# 
+# ```{r}
+mod_diamond2 <- lm(lprice ~ lcarat + color + cut + clarity, data = diamonds2)
+
+grid <- diamonds2 %>% 
+  data_grid(cut, .model = mod_diamond2) %>% 
+  add_predictions(mod_diamond2)
+# ```
+# 
+# ## Adicionando mais variáveis
+# ```{r fig.align='center', fig.width=7, fig.height=5}
+ggplot(grid, aes(cut, pred)) + geom_point()
+# ```
+# 
+# ## Análise dos resíduos
+# Aparentemente, mesmo controlando por peso e quantidade, ainda há diamantes com preço maior do que o esperado!
+#   
+#   ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+diamonds2 <- diamonds2 %>% 
+  add_residuals(mod_diamond2, "lresid2")
+
+ggplot(diamonds2, aes(lcarat, lresid2)) + 
+  geom_hex(bins = 50)
+# ```
+# 
+# 
+# ## Exercício
+# Quais são os diamantes com maiores e menores resíduos de acordo com o modelo multivariado?
+  
+## Exercício: resposta
+
+  
+# ## Padrões de voos em Nova York
+# 
+# Esta base de dados vai nos ajudar a enxergar a riqueza das ferramentas de previsão e identificação de tendências. Vamos partir de uma base rica sobre voos nos Estados Unidos, e transformá-la em um banco com apenas 365 linhas e 2 colunas, registrando o número de vôos que saem de Nova York todos os dias.
+# 
+# ```{r echo=TRUE, results='hide'}
+flights
+# ```
+# 
+# 
+# ## Transformação dos dados
+# ```{r echo=TRUE, results='hide', message=FALSE, warning=FALSE}
+daily <- flights %>% 
+  mutate(date = make_date(year, month, day)) %>% 
+  group_by(date) %>% 
+  summarise(n = n())
+# ```
+# 
+# ## Inspeção visual
+# Há um padrão claro nessa análise exploratória. Quais são os dias com queda tão forte de voos?
+#   
+#   ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+ggplot(daily, aes(date, n)) + geom_line()
+# ```
+# 
+# ## Voos por dia da semana
+# ```{r echo=TRUE, fig.align='center', fig.width=7, fig.height=5}
+daily <- daily %>% mutate(wday = wday(date, label = TRUE))
+ggplot(daily, aes(wday, n)) + geom_boxplot()
+# ```
+# 
+# ## Identificação da tendência
+# Há um padrão claro de menos voos nos fins de semana. Vamos modelar?
+#   ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+mod <- lm(n ~ wday, data = daily)
+
+grid <- daily %>% 
+  data_grid(wday) %>% 
+  add_predictions(mod, "n")
+
+ggplot(daily, aes(wday, n)) + 
+  geom_boxplot() +
+  geom_point(data = grid, colour = "red", size = 4)
+# ```
+# 
+# ## Visualização dos resíduos
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+daily <- daily %>% 
+  add_residuals(mod)
+
+daily %>% ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_line()
+# ```
+# 
+# ## Análise dos resíduos
+# O que podemos ver nos resíduos?
+#   
+#   1. O modelo não está modelando bem o período de junho, com resíduos regularmente mais altos.
+# 
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+ggplot(daily, aes(date, resid, colour = wday)) + 
+  geom_ref_line(h = 0) + 
+  geom_line()
+# ```
+# 
+# ## Análise dos resíduos
+# 2. Há alguns dias com bem menos voos do que o esperado
+# 
+# ```{r echo=TRUE, eval=FALSE}
+daily %>% filter(resid < -100)
+# ```
+# 
+# ## Análise dos resíduos
+# 3. Existe uma tendência de menos voos nos meses de inverno, pareada com maior frequência nos meses de verão
+# 
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5, message=FALSE, warning=FALSE}
+daily %>% 
+  ggplot(aes(date, resid)) + 
+  geom_ref_line(h = 0) + 
+  geom_line(colour = "grey50") + 
+  geom_smooth(se = FALSE, span = 0.20)
+# ```
+# 
+# 
+# ## Centrando atenção nos sábados
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+daily %>% 
+  filter(wday == "Sat") %>% 
+  ggplot(aes(date, n)) + 
+  geom_point() + 
+  geom_line() +
+  scale_x_date(NULL, date_breaks = "1 month", date_labels = "%b")
+# ```
+# 
+# ## Centrando atenção nos sábados
+# Existe uma alta clara no verão, mas o que acontece nos demais períodos? Vamos examinar:
+#   
+#   ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+term <- function(date) {
+  cut(date, 
+      breaks = ymd(20130101, 20130605, 20130825, 20140101),
+      labels = c("spring", "summer", "fall") 
+  )
+}
+
+daily <- daily %>% 
+  mutate(term = term(date)) 
+
+daily %>% 
+  filter(wday == "Sat") %>% 
+  ggplot(aes(date, n, colour = term)) +
+  geom_point(alpha = 1/3) + 
+  geom_line() +
+  scale_x_date(NULL, date_breaks = "1 month", date_labels = "%b")
+# ```
+# 
+# ## Esse padrão se repete nos outros dias?
+# 
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+daily %>% 
+  ggplot(aes(wday, n, colour = term)) +
+  geom_boxplot()
+# ```
+# 
+# ## Análise da interação
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+mod1 <- lm(n ~ wday, data = daily)
+mod2 <- lm(n ~ wday * term, data = daily)
+
+daily %>% 
+  gather_residuals(without_term = mod1, with_term = mod2) %>% 
+  ggplot(aes(date, resid, colour = model)) +
+  geom_line(alpha = 0.75)
+# ```
+# 
+# ## Análise da interação
+# Podemos observar que os outliers não deixam a interação melhorar o modelo
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+grid <- daily %>% 
+  data_grid(wday, term) %>% 
+  add_predictions(mod2, "n")
+
+ggplot(daily, aes(wday, n)) +
+  geom_boxplot() + 
+  geom_point(data = grid, colour = "red") + 
+  facet_wrap(~ term)
+# ```
+# 
+# ## Modelo robusto
+# Um modelo robusto melhora bastante nossa previsão
+# 
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+mod3 <- MASS::rlm(n ~ wday * term, data = daily)
+
+daily %>% 
+  add_residuals(mod3, "resid") %>% 
+  ggplot(aes(date, resid)) + 
+  geom_hline(yintercept = 0, size = 2, colour = "white") + 
+  geom_line()
+# ```
+# 
+# 
+# ## Ajustando mais de um modelo
+# 
+# ## Agora é pra valer!
+# Agora que temos as técnicas básicas, podemos fazer um exercício mais ambicioso. Vamos rodar vários modelos para entender um banco de dados mais complexo, com fenômenos parecidos com aqueles que costumamos estudar.
+# 
+# Isso vai exigir que a gente armazene resultados em estruturas mais sofisticadas. Assim, vamos conseguir separar tendências mais fortes nos dados para revelar padrões mais sutis, que talvez não pudéssemos capturar à primeira vista.
+# 
+# Vamos responder à seguinte pergunta: como a expectativa de vida evoluiu nos últimos anos em cada país?
+#   
+#   ```{r echo=TRUE, results='hide'}
+
+rm(list=ls())
+
+gapminder
+# ```
+# 
+# ## Evolução por país
+# Você vê uma tendência?
+#   
+#   ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+gapminder %>% 
+  ggplot(aes(year, lifeExp, group = country)) +
+  geom_line(alpha = 1/3)
+# ```
+# 
+# ## Análise de um país
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+nz <- filter(gapminder, country == "New Zealand")
+nz %>% 
+  ggplot(aes(year, lifeExp)) + 
+  geom_line() + 
+  ggtitle("Full data - New Zealand")
+# ```
+# 
+# ## Análise de um país
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+nz_mod <- lm(lifeExp ~ year, data = nz)
+nz %>% 
+  add_predictions(nz_mod) %>%
+  ggplot(aes(year, pred)) + 
+  geom_line() + 
+  ggtitle("Linear trend - New Zealand")
+# ```
+# 
+# ## Análise de um país
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5}
+nz %>% 
+  add_residuals(nz_mod) %>% 
+  ggplot(aes(year, resid)) + 
+  geom_hline(yintercept = 0, colour = "white", size = 3) + 
+  geom_line() + 
+  ggtitle("Remaining pattern - New Zealand")
+# ```
+# 
+# ## Mas e os demais?
+# Já vimos como decompor o resíduo quando temos apenas um caso. Mas como podemos identificar os países que não seguem a tendência geral que observamos? Temos que rodar um a um?
+#   
+#   O princípio da preguiça nos dá a resposta: **não**.
+# 
+# ## Dados aninhados
+# Queremos repetir a mesma operação para diferentes observações na nossa base de dados (ou seja, decompor tendência e resíduo por país). 
+# 
+# Vamos usar uma estrutura de dados que tem apenas uma linha para cada país, e uma coluna especial chamada `data`. Esta coluna é uma lista de dataframes (dentro do nosso dataframe!)
+# 
+# ```{r echo=TRUE, results='hide'}
+by_country <- gapminder %>% 
+  group_by(country, continent) %>% 
+  nest()
+# ```
+# 
+# ## Dados aninhados
+# Se olharmos para o valor de apenas uma dessas listas, vemos que ela contem todas as informaçõs, **por ano**, daquele país.
+# 
+# ```{r echo=TRUE, results='hide'}
+by_country$data[[1]]
+# ```
+# 
+# Portanto, agora temos uma base de dados em que cada linha não é só uma observação; é um conjunto delas!
+#   
+#   ## Adicionando mais uma lista
+#   Para poder rodar nosso modelo em cada conjunto de observações, vamos criar uma nova função:
+#   
+#   ```{r echo=TRUE, results='hide'}
+country_model <- function(df) {
+  lm(lifeExp ~ year, data = df)
+}
+# ```
+# 
+# Agora, podemos usar a função `purrr::map` para aplicar nosso modelo a cada conjunto de observações. *And just like that*, temos uma segunda lista de data frames dentro do nosso data frame
+# 
+# ```{r echo=TRUE, results='hide'}
+by_country <- by_country %>% 
+  mutate(model = map(data, country_model))
+# ```
+# 
+# ## Hora de sair do ninho
+# Neste ponto, nós temos 142 modelos na nossa base. Para fazer a análise de resíduos em todos eles, seguimos a mesma lógica:
+#   
+#   ```{r echo=TRUE, results='hide'}
+by_country <- by_country %>% 
+  mutate(resids = map2(data, model, add_residuals))
+# ```
+# 
+# Agora que já temos todos os cálculos que queríamos, podemos desaninhar os modelos para poder colocá-los em gráficos
+# 
+# ```{r echo=TRUE, results='hide'}
+resids <- unnest(by_country, resids)
+# ```
+# 
+# ## Resíduos de todos os países
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5, message=FALSE, warning=FALSE}
+resids %>% 
+  ggplot(aes(year, resid)) +
+  geom_line(aes(group = country), alpha = 1 / 3) + 
+  geom_smooth(se = FALSE)
+# ```
+# 
+# ## Separando por continente
+# 
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5, message=FALSE, warning=FALSE}
+resids %>% 
+  ggplot(aes(year, resid, group = country)) +
+  geom_line(alpha = 1 / 3) + 
+  facet_wrap(~continent)
+# ```
+# 
+# ## Identificando os piores ajustes
+# ```{r echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+glance <- by_country %>% 
+  mutate(glance = map(model, broom::glance)) %>% 
+  unnest(glance) %>% 
+  arrange(r.squared)
+
+glance
+# ```
+# 
+# ## Um olhar para a África
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5, message=FALSE, warning=FALSE}
+glance %>% 
+  ggplot(aes(continent, r.squared)) + 
+  geom_jitter(width = 0.5)
+# ```
+# 
+# ## Um olhar para a África
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5, message=FALSE, warning=FALSE}
+bad_fit <- filter(glance, r.squared < 0.25)
+
+gapminder %>% 
+  semi_join(bad_fit, by = "country") %>% 
+  ggplot(aes(year, lifeExp, colour = country)) +
+  geom_line()
+# ```
+# 
+# 
+# ## Votações na AGNU
+# Para ilustrar o poder das técnicas de redução de dimensionalidade, vamos explorar a base de dados de votações nominais da Assembleia Geral das Nações Unidas desde 1946.
+# 
+# ```{r echo=TRUE, results='hide'}
+# Votação de cada país
+un_votes 
+
+# Informações sobre cada votação
+un_roll_calls
+
+# Tema das votações
+un_roll_call_issues
+# ```
+# 
+# ## Temas mais comuns
+# ```{r echo=TRUE, warning=FALSE, message=FALSE, results='hide'}
+un_roll_call_issues %>% count(issue, sort = TRUE)
+# ```
+# 
+# ## Tendência de "Sim" para países selecionados
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5, message=FALSE, warning=FALSE}
+joined <- un_votes %>%
+  inner_join(un_roll_calls, by = "rcid")
+
+by_country_year <- joined %>%
+  group_by(year = year(date), country) %>%
+  summarize(votes = n(),
+            percent_yes = mean(vote == "yes"))
+
+countries <- c('Brazil', 'United States of America', 'Argentina')
+
+by_country_year %>% 
+  filter(country %in% countries) %>%
+  ggplot(aes(x = year, y = percent_yes, color = country)) + 
+  geom_line() +
+  ylab("% of votes are 'Yes'") + 
+  ggtitle("Trend in percentage Yes Votes 1946-2015") + 
+  theme_minimal()
+# ```
+# 
+# ## Tendência de votações do Brasil por tema
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5, message=FALSE, warning=FALSE}
+joined %>%
+  filter(country == "Brazil") %>%
+  inner_join(un_roll_call_issues, by = "rcid") %>%
+  group_by(year = year(date), issue) %>%
+  summarize(votes = n(),
+            percent_yes = mean(vote == "yes")) %>%
+  filter(votes > 5) %>%
+  ggplot(aes(year, percent_yes)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  facet_wrap(~ issue)
+# ```
+# 
+# ## Ponto ideal do Brasil na UNGA
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5, message=FALSE, warning=FALSE}
+load(here("./data/UNVotes.RData"))
+
+unga %>% ggplot(aes(year, IdealPoint.x)) +
+  geom_line() + 
+  theme_classic()
+# 
+# ```
+# 
+# ## Distância do Brasil em relação a Argentina
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5, message=FALSE, warning=FALSE}
+unga %>% 
+  filter(ccode2 == 160) %>% 
+  ggplot(aes(year, IdealPointDistance)) +
+  geom_line() + 
+  theme_classic()
+# 
+# ```
+# 
+# ## Distância do Brasil em relação aos EUA
+# ```{r echo=FALSE, fig.align='center', fig.width=7, fig.height=5, message=FALSE, warning=FALSE}
+unga %>% 
+  filter(ccode2 == 2) %>% 
+  ggplot(aes(year, IdealPointDistance)) +
+  geom_line() + 
+  theme_classic()
+# 
+# ```
+# 
+# 
+# 
+# ## Material adicional
+# 
+# - [Dataverse - Eric Voeten](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/LEJUQZ)
+# - [Statistical Modeling: A Fresh Approach by Danny Kaplan](http://project-mosaic-books.com/?page_id=13)
+# - [Applied Predictive Modeling](http://appliedpredictivemodeling.com)
+# - [Tidy Models](https://www.tidymodels.org/)
+# 
+# ## Tarefa da aula
+# 
+# As instruções da tarefa estão no arquivo `NN-class-ds4ir-assignment.rmd` da pasta 
+# `assignment` que se encontra na raiz desse projeto.
+
+
+
+
+
+
+
+
+
+
+
